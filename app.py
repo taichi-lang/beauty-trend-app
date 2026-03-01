@@ -5,16 +5,20 @@ import requests
 # --- ページ設定 ---
 st.set_page_config(page_title="Trend Beauty Lab.jp", page_icon="💄")
 
-# --- 翻訳関数 (エラー詳細表示版) ---
+# --- 翻訳関数 (最新のヘッダー認証方式) ---
 def translate_text(text, api_key):
     try:
         url = "https://api-free.deepl.com/v2/translate"
-        params = {
-            "auth_key": api_key,
-            "text": text,
+        # 最新の仕様：APIキーは headers に入れる
+        headers = {
+            "Authorization": f"DeepL-Auth-Key {api_key}"
+        }
+        # テキストデータは data に入れる
+        data = {
+            "text": [text],
             "target_lang": "JA"
         }
-        response = requests.post(url, data=params, timeout=10)
+        response = requests.post(url, headers=headers, data=data, timeout=10)
         
         if response.status_code == 200:
             return response.json()["translations"][0]["text"]
@@ -23,7 +27,9 @@ def translate_text(text, api_key):
     except Exception as e:
         return f"通信エラー: {e}"
 
-# --- インスタ投稿用メモ生成機能 ---
+# --- 以下、ログイン・メイン処理は前回と同じ ---
+# (中略)
+
 def create_insta_memo(title_ja, summary_ja):
     memo = f"""
 【インスタ投稿用メモ】
@@ -78,7 +84,6 @@ else:
                 with st.expander(f"📌 {entry.title}"):
                     st.write(f"🔗 [元記事を読む]({entry.link})")
                     
-                    # 翻訳・台本生成
                     if st.button("日本語訳 ＆ 台本案作成", key=f"tr_{i}"):
                         with st.spinner("翻訳中..."):
                             t_title = translate_text(entry.title, st.secrets["deepl_api_key"])
@@ -88,10 +93,8 @@ else:
                             st.success(t_title)
                             st.write(t_body)
                             
-                            # 保存用データ作成
                             st.session_state[f"memo_{i}"] = create_insta_memo(t_title, t_body)
 
-                    # 保存ボタン
                     if f"memo_{i}" in st.session_state:
                         st.text_area("そのままコピペ用メモ", st.session_state[f"memo_{i}"], height=150)
                         if st.button("この記事を保存リストへ", key=f"save_{i}"):
