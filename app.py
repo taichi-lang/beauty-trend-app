@@ -25,7 +25,6 @@ def generate_insta_plan(title_ja, summary_ja):
 
 ■1枚目（表紙：悩みに刺す！）
 「海外でバズり散らかしてる〇〇が凄すぎた...」
-（小文字：英語の一次情報から徹底解説）
 
 ■2枚目（何がすごいの？）
 【特徴】{title_ja}
@@ -43,6 +42,43 @@ def generate_insta_plan(title_ja, summary_ja):
 #海外コスメ #韓国コスメ #日本未上陸 #トレンド美容 #trend_beauty_lab
     """
     return plan
+
+# --- RSS取得（ブロック回避用：iPhoneからのアクセスを偽装） ---
+def fetch_rss(url):
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1'
+    }
+    try:
+        res = requests.get(url, headers=headers, timeout=10)
+        return feedparser.parse(res.content)
+    except Exception:
+        return None
+
+# --- 美容記事の「徹底」フィルタリング ---
+def is_beauty_article(entry):
+    text = (entry.title + " " + entry.get('summary', '')).lower()
+    
+    # ❌ 絶対に弾くNGキーワード（エンタメ、恋愛、政治、単なるファッションなど）
+    ng_words = [
+        "movie", "music", "politics", "sports", "film", "k-pop", "runway", "sneaker", "relationship", "dating",
+        "映画", "音楽", "政治", "スポーツ", "スニーカー", "エンタメ", "ドラマ", "熱愛", "結婚", "インタビュー", "俳優", "女優"
+    ]
+    for word in ng_words:
+        if word in text:
+            return False # 1つでも入っていれば即除外
+            
+    # ⭕️ 必須の美容キーワード（これが1つも入っていなければ美容記事ではないとみなして弾く）
+    ok_words = [
+        "beauty", "makeup", "skincare", "cosmetics", "hair", "skin", "lip", "nail",
+        "fragrance", "perfume", "serum", "lotion", "moisturizer", "anti-aging", "sunscreen", "cleanser",
+        "美容", "メイク", "スキンケア", "コスメ", "ヘアケア", "肌", "リップ", "ネイル",
+        "香水", "美容液", "化粧水", "保湿", "エイジングケア", "化粧品", "日焼け止め", "洗顔"
+    ]
+    for word in ok_words:
+        if word in text:
+            return True # 美容用語が入っていれば合格
+            
+    return False # 美容用語が見当たらなければ除外
 
 # --- パスワード認証 ---
 if "password_correct" not in st.session_state:
@@ -64,48 +100,53 @@ else:
     if "saved_articles" not in st.session_state:
         st.session_state["saved_articles"] = []
 
-    # 大枠のタブ（検索と保存リスト）
     tab_main, tab_saved = st.tabs(["🔍 最新トレンド検索", "📁 保存済み・投稿案"])
 
     with tab_main:
-        # --- 地域のタブ分け ---
         region_tabs = st.tabs(["🇰🇷 韓国", "🇯🇵 日本", "🌍 それ以外（海外）"])
 
+        # 読み込めないURLの修正と代替メディアの追加
         sources = {
             "🇰🇷 韓国": {
-                "K-pop Herald (Beauty)": "http://www.koreaherald.com/common/rss_xml.php?ct=1001",
-                "Soompi (Style)": "https://www.soompi.com/feed"
+                "Soompi (Style & Beauty)": "https://www.soompi.com/category/style/feed",
+                "K-pop Herald (Beauty)": "http://www.koreaherald.com/common/rss_xml.php?ct=1001"
             },
             "🇯🇵 日本": {
-                "PR TIMES (美容)": "https://prtimes.jp/main/html/searchrlp/ct_id/14/rss",
+                "PR TIMES (美容・コスメ専用)": "https://prtimes.jp/tv/14/rss.xml",
                 "WWDJAPAN (Beauty)": "https://www.wwdjapan.com/category/beauty/feed"
             },
             "🌍 それ以外（海外）": {
                 "Allure (全米No.1美容誌)": "https://www.allure.com/feed/rss",
-                "Byrdie (成分/トレンド)": "https://www.byrdie.com/rss",
-                "Cosmopolitan Beauty": "https://www.cosmopolitan.com/feeds/beauty"
+                "Vogue Beauty (US)": "https://www.vogue.com/feed/beauty/rss",
+                "Byrdie (成分/トレンド)": "https://www.byrdie.com/rss"
             }
         }
 
-        # 各地域タブの中身を生成
         for i, region in enumerate(sources.keys()):
             with region_tabs[i]:
                 selected_source = st.selectbox(f"{region}の情報源を選択", list(sources[region].keys()), key=f"source_{i}")
                 
                 if st.button(f"📰 {selected_source} の最新記事を取得", key=f"btn_{i}"):
-                    with st.spinner("記事を読み込み中..."):
-                        feed = feedparser.parse(sources[region][selected_source])
-                        if feed.entries:
-                            st.session_state["current_entries"] = feed.entries[:10]
-                            st.success(f"{len(st.session_state['current_entries'])}件の記事を取得しました！下にスクロールしてください👇")
+                    with st.spinner("記事を読み込み、不要な情報を排除中..."):
+                        # ブロック回避関数でRSSを取得
+                        feed = fetch_rss(sources[region][selected_source])
+                        
+                        if feed and feed.entries:
+                            # 取得した記事を、先ほどの強力なフィルターにかける
+                            filtered_entries = [e for e in feed.entries if is_beauty_article(e)]
+                            
+                            if filtered_entries:
+                                st.session_state["current_entries"] = filtered_entries[:15]
+                                st.success(f"純粋な美容記事だけを {len(filtered_entries)} 件抽出しました！👇")
+                            else:
+                                st.warning("取得した中に、純粋な美容関連記事が見つかりませんでした（エンタメ等を除外したため）。")
                         else:
-                            st.error("記事が見つかりませんでした。別のソースをお試しください。")
+                            st.error("サイト側でアクセスがブロックされているか、記事がありません。")
 
         st.divider()
 
-        # --- 取得した記事の表示エリア ---
         if "current_entries" in st.session_state:
-            st.subheader("📋 取得した記事一覧")
+            st.subheader("📋 厳選された美容記事一覧")
             for j, entry in enumerate(st.session_state["current_entries"]):
                 with st.expander(f"📌 {entry.title}"):
                     st.write(f"🔗 [元記事をブラウザで開く]({entry.link})")
@@ -119,12 +160,10 @@ else:
                             st.success(t_title)
                             st.session_state[f"plan_{j}"] = generate_insta_plan(t_title, t_body)
 
-                    # 構成案が表示されたら「保存ボタン」を出す
                     if f"plan_{j}" in st.session_state:
                         st.text_area("そのまま使える投稿案", st.session_state[f"plan_{j}"], height=250)
                         if st.button("💾 この記事を保存", key=f"save_{j}"):
                             article_data = {"title": entry.title, "plan": st.session_state[f"plan_{j}"], "link": entry.link}
-                            # 重複保存を防ぐ
                             if article_data not in st.session_state["saved_articles"]:
                                 st.session_state["saved_articles"].append(article_data)
                                 st.toast("保存しました！")
