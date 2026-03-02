@@ -1,9 +1,6 @@
 import streamlit as st
 import feedparser
 import requests
-from rembg import remove
-from PIL import Image
-from io import BytesIO
 
 # --- ページ設定 ---
 st.set_page_config(page_title="Trend Beauty Lab.jp", page_icon="💄", layout="centered")
@@ -20,15 +17,6 @@ def translate_text(text, api_key):
         return f"翻訳エラー: {response.status_code}"
     except:
         return "通信エラーが発生しました"
-
-# --- 背景削除関数 ---
-def remove_bg(image_url):
-    try:
-        response = requests.get(image_url, timeout=10)
-        img = Image.open(BytesIO(response.content))
-        return remove(img)
-    except Exception:
-        return None
 
 # --- インスタ構成案作成 ---
 def generate_insta_plan(title_ja, summary_ja):
@@ -122,39 +110,14 @@ else:
                 with st.expander(f"📌 {entry.title}"):
                     st.write(f"🔗 [元記事をブラウザで開く]({entry.link})")
 
-                    # 画像URLを探す処理（RSSの仕様の違いを吸収）
-                    img_url = ""
-                    if 'links' in entry:
-                        for link in entry.links:
-                            if 'image' in link.get('type', ''):
-                                img_url = link.get('href')
-                    if not img_url and 'media_content' in entry:
-                        img_url = entry.media_content[0]['url']
+                    if st.button("🇯🇵 日本語解析＆台本作成", key=f"tr_{j}"):
+                        with st.spinner("翻訳＆構成案を作成中..."):
+                            t_title = translate_text(entry.title, st.secrets["deepl_api_key"])
+                            raw_text = entry.get('summary', '') or entry.get('description', '')
+                            t_body = translate_text(raw_text[:500], st.secrets["deepl_api_key"])
 
-                    # ボタンを横並びに配置
-                    col1, col2 = st.columns(2)
-
-                    with col1:
-                        if st.button("🇯🇵 日本語解析＆台本作成", key=f"tr_{j}"):
-                            with st.spinner("翻訳＆構成案を作成中..."):
-                                t_title = translate_text(entry.title, st.secrets["deepl_api_key"])
-                                raw_text = entry.get('summary', '') or entry.get('description', '')
-                                t_body = translate_text(raw_text[:500], st.secrets["deepl_api_key"])
-
-                                st.success(t_title)
-                                st.session_state[f"plan_{j}"] = generate_insta_plan(t_title, t_body)
-
-                    with col2:
-                        if img_url and st.button("✂️ 背景を消して画像保存", key=f"bg_{j}"):
-                            with st.spinner("AIが背景を削除中...（数秒かかります）"):
-                                no_bg_img = remove_bg(img_url)
-                                if no_bg_img:
-                                    st.image(no_bg_img, caption="背景削除完了！")
-                                    buf = BytesIO()
-                                    no_bg_img.save(buf, format="PNG")
-                                    st.download_button("📥 透過画像をダウンロード", buf.getvalue(), f"item_{j}.png", "image/png", key=f"dl_{j}")
-                                else:
-                                    st.warning("画像の取得・透過に失敗しました（サイト側で直リンクが禁止されている可能性があります）。")
+                            st.success(t_title)
+                            st.session_state[f"plan_{j}"] = generate_insta_plan(t_title, t_body)
 
                     # 構成案が表示されたら「保存ボタン」を出す
                     if f"plan_{j}" in st.session_state:
